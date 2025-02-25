@@ -66,8 +66,8 @@ module.exports = function(app) {
 	    sailconfig: {
 		type: 'string',
 		title: 'Sail configuration',
-		default: 'Inter + GV haute',
-		enum: ['Génois + GV haute', 'Inter + GV haute', 'Inter + GV 1 ris', 'Foc de route + GV 1 ris', 'Foc de route + GV 2 ris'],
+		default: 'Intermediate jib + Main',
+		enum: ['Genoa + Main', 'Intermediate jib + Main', 'Inter jib + Main one reef', 'Small jib + Main one reef', 'Small jib + Main two reefs'],
 	    },
 	    enginestate: {
 		type: 'string',
