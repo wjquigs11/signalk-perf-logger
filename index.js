@@ -1,4 +1,3 @@
-const Bacon = require("baconjs");
 const debug = require("debug")("signalk:signalk-perf-logger");
 const util = require("util");
 const _ = require('lodash')
