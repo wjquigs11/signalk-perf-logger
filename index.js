@@ -27,9 +27,9 @@ module.exports = function(app) {
     var timerId
     var model
     var sailconfig
-    
+
     plugin.id = "sk-perf-logger"
-    plugin.name = "Signal K perf data logger"
+    plugin.name = "Signal K performance data Logger"
     plugin.description = "Log Signal K performance data to csv files."
 
     plugin.schema = {
@@ -40,7 +40,7 @@ module.exports = function(app) {
 	    logdir: {
 		type: 'string',
 		title: 'Data log file directory',
-            default: '/root/.signalk/sk-perf-data'
+            default: '/tmp/sk-perf-data'
 	    },
 	    logrotationinterval: {
 		type: 'number',
@@ -157,7 +157,7 @@ module.exports = function(app) {
 			if (err) throw err;
 		    }
 		)
-		app.debug(`sk-perf-logger adding row : ${row}`)
+		app.debug(`adding row : ${row}`)
 
 	    }
 
