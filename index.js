@@ -28,34 +28,14 @@ module.exports = function(app) {
     var sailconfig
 
     plugin.id = "sk-perf-logger"
-    plugin.name = "Signal K performance data Logger"
-    plugin.description = "Log Signal K performance data to csv files."
+    plugin.name = "Performance data Logger"
+    plugin.description = "Log sailboat performance data to csv files"
 
     plugin.schema = {
 	type: "object",
-	title: "Performance data logging to csv files",
-	description: "Log Signal K performance data into csv files.",
+	title: "Sailboat performance data log",
+	description: "Log sailboat parameters to csv files",
 	properties: {
-	    logdir: {
-		type: 'string',
-		title: 'Data log file directory',
-            default: '/tmp/sk-perf-data'
-	    },
-	    logrotationinterval: {
-		type: 'number',
-		title: 'Log rotation interval (in seconds). Value of zero disables log rotation.',
-            default: 3600
-	    },
-	    context: {
-		type: 'string',
-		title: 'Subscription context',
-            default: 'vessels.self'
-	    },
-	    period: {
-		type: 'number',
-		title: 'Logging period',
-		default: 300
-	    },
 	    model: {
 		type: 'string',
 		title: 'Sailboat model',
@@ -64,7 +44,7 @@ module.exports = function(app) {
 	    },
 	    sailconfig: {
 		type: 'string',
-		title: 'Sail configuration',
+		title: 'Sails configuration',
 		default: 'Intermediate jib + Main',
 		enum: ['Genoa + Main', 'Intermediate jib + Main', 'Inter jib + Main one reef', 'Small jib + Main one reef', 'Small jib + Main two reefs'],
 	    },
@@ -73,6 +53,21 @@ module.exports = function(app) {
 		title: 'Engine state',
 		default: 'started',
 		enum: ['started', 'stopped'],
+	    },
+	    logdir: {
+		type: 'string',
+		title: 'Log files directory',
+            default: '/tmp/sk-perf-data'
+	    },
+	    logrotationinterval: {
+		type: 'number',
+		title: 'Log rotation interval (s). Value of zero disables log rotation.',
+            default: 3600
+	    },
+	    period: {
+		type: 'number',
+		title: 'Logging period (s)',
+		default: 300
 	    }
 	}
     }
@@ -85,7 +80,6 @@ module.exports = function(app) {
 	}
 	logDir = options.logdir
 	logRotationInterval = options.logrotationinterval
-	context = options.context
 	period = options.period
 	model = options.model
 	sailconfig=options.sailconfig
