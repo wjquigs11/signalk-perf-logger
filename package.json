@@ -12,7 +12,8 @@
     "url": "git+https://github.com/benoit-jpi/signalk-perf-logger.git"
   },
   "keywords": [
-    "signalk-node-server-plugin"
+    "signalk-node-server-plugin",
+    "signalk-webapp"
   ],
   "author": "Jean-Pierre Benoit",
   "license": "ISC",

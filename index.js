@@ -40,8 +40,16 @@ module.exports = function(app) {
     var logFileName = "data_log.json"
     var timerRotationId
     var timerId
-    var model
-    var sailconfig
+    var logenable = false
+    var flushEnabled = false
+    var zipEnabled = true
+    var logStream = null
+    var sails
+    var enginestate
+    var period
+    var logRotationInterval
+
+    var lastSkTimestamp = 0
 
     plugin.id = "sk-perf-logger"
     plugin.name = "Performance data Logger"
@@ -52,28 +60,41 @@ module.exports = function(app) {
 	title: "Sailboat performance data log",
 	description: "Log sailboat parameters to csv files",
 	properties: {
-	    model: {
-		type: 'string',
-		title: 'Sailboat model',
-		default: 'Muscadet Q',
-		enum: ['Muscadet Q', 'Muscadet DL'],
+	    logenable: {
+		type: 'boolean',
+		title: 'Enable logging',
+		default: false,
 	    },
-	    sailconfig: {
-		type: 'string',
-		title: 'Sails configuration',
-		default: 'Intermediate jib + Main',
-		enum: ['Genoa + Main', 'Intermediate jib + Main', 'Inter jib + Main one reef', 'Small jib + Main one reef', 'Small jib + Main two reefs'],
+	    main: {
+		type: 'boolean',
+		title: 'Main sail',
+		default: true,
+	    },
+	    jib: {
+		type: 'boolean',
+		title: 'Jib',
+		default: true,
+	    },
+	    screacher: {
+		type: 'boolean',
+		title: 'Screacher',
+		default: false,
+	    },
+	    spinnaker: {
+		type: 'boolean',
+		title: 'Spinnaker',
+		default: false,
 	    },
 	    enginestate: {
 		type: 'string',
 		title: 'Engine state',
-		default: 'started',
+		default: 'stopped',
 		enum: ['started', 'stopped'],
 	    },
 	    logdir: {
 		type: 'string',
 		title: 'Log files directory',
-            default: '/tmp/sk-perf-data'
+            default: './sk-perf-data'
 	    },
 	    logrotationinterval: {
 		type: 'number',
@@ -84,22 +105,44 @@ module.exports = function(app) {
 		type: 'number',
 		title: 'Logging period (s)',
 		default: 300
+	    },
+	    flush: {
+		type: 'boolean',
+		title: 'Flush after each write',
+		default: false
+	    },
+	    zip: {
+		type: 'boolean',
+		title: 'Compress rotated log files',
+		default: true
 	    }
 	}
     }
 
     plugin.start = function (options) {
 
+	app.debug('plugin.start called')
+
 	if (typeof options.logdir === 'undefined') {
 	    app.setProviderStatus('Log directory not defined, plugin disabled')
 	    return
 	}
-	logDir = options.logdir
+	const rawDir = options.logdir.startsWith('~') ? options.logdir.replace('~', require('os').homedir()) : options.logdir
+	logDir = path.isAbsolute(rawDir) ? rawDir : path.resolve(app.getDataDirPath(), rawDir)
 	logRotationInterval = options.logrotationinterval
 	period = options.period
-	model = options.model
-	sailconfig=options.sailconfig
+	logenable = options.logenable || false
+	flushEnabled = options.flush || false
+	zipEnabled = options.zip !== undefined ? options.zip : true
+	sails = {
+	    main: options.main || true,
+	    jib: options.jib || true,
+	    screacher: options.screacher || false,
+	    spinnaker: options.spinnaker || false
+	}
 	enginestate=options.enginestate
+
+	app.debug(`logDir=${logDir} period=${period} logenable=${logenable}`)
 
 	if (!fs.existsSync(logDir)) {
 	    // attempt creating the log directory
@@ -117,7 +160,7 @@ module.exports = function(app) {
 	    app.debug("meta file exists")
 	    const oldLogFile = fs.readFileSync(logMetaFileName).toString()
 	    if (fs.existsSync(path.join(logDir, oldLogFile))) {
-		compressLogFile(logDir, oldLogFile)
+		if (zipEnabled) compressLogFile(logDir, oldLogFile)
 	    }
 	}
 
@@ -128,27 +171,82 @@ module.exports = function(app) {
 	    timerRotationId = setInterval(() => { rotateLogFile(new Date(), true) }, logRotationInterval * 1000 )
 	}
 
-	timerId = setInterval(() => { writeData(model, sailconfig, enginestate) }, period * 1000 )
+	app.debug(`starting interval with period=${period}s`)
+	timerId = setInterval(() => {
+	    //app.debug(`interval tick: logenable=${logenable}`)
+	    if (logenable) writeData(sails, enginestate)
+	}, period * 1000 )
     }
     
+    plugin.registerWithRouter = function (router) {
+	router.get('/logenable', (req, res) => {
+	    res.json({ logenable })
+	})
+	router.put('/logenable', (req, res) => {
+	    if (typeof req.body.logenable !== 'boolean') {
+		return res.status(400).json({ error: 'logenable must be a boolean' })
+	    }
+	    logenable = req.body.logenable
+	    app.debug(`Logging ${logenable ? 'enabled' : 'disabled'} via API, path: ${path.join(logDir, logFileName)}`)
+	    res.json({ logenable })
+	})
+	router.get('/data', (req, res) => {
+	    try {
+		const val = (p) => {
+		    const v = app.getSelfPath(p)
+		    return v !== undefined && v !== null ? Number(v) : null
+		}
+		const kn = (v) => v !== null ? +(v * 1.94384).toFixed(2) : null
+		const deg = (v) => v !== null ? +(v * (180 / Math.PI)).toFixed() : null
+
+		res.json({
+		    sog: kn(val('navigation.speedOverGround.value')),
+		    cog: deg(val('navigation.courseOverGroundTrue.value')),
+		    stw: kn(val('navigation.speedThroughWater.value')),
+		    aws: kn(val('environment.wind.speedApparent.value')),
+		    awa: deg(val('environment.wind.angleApparent.value')),
+		    tws: kn(val('environment.wind.speedTrue.value')),
+		    twa: deg(val('environment.wind.angleTrueWater.value')),
+		    hdg: deg(val('navigation.headingTrue.value')),
+		    vmgW: kn(val('performance.velocityMadeGoodWind.value')),
+		    vmgG: kn(val('performance.velocityMadeGoodGround.value')),
+		    dbk: val('environment.depth.belowKeel.value') !== null ? +Number(val('environment.depth.belowKeel.value') * 3.28084).toFixed(1) : null
+		})
+	    } catch (err) {
+		res.status(500).json({ error: err.message })
+	    }
+	})
+    }
+
     plugin.stop = function () {
 
 	clearInterval(timerRotationId)
 	clearInterval(timerId)
+
+	// close the stream before compressing
+	if (logStream) {
+	    logStream.end()
+	    logStream = null
+	}
 
 	// compress the log file
 	rotateLogFile(new Date(), true)
     }
     return plugin
 
-    function writeData(model, config, state) {
+    function writeData(sails, state) {
 
 	try {
-	    let tunix=Math.round(+new Date())
 	    let datetime=app.getSelfPath('navigation.datetime.value')
 	    let timestamp=Date.parse(datetime)
 
-	    if ((tunix-timestamp) < period * 1000) { // only log if age of data < period
+	    if (isNaN(timestamp)) {
+		app.debug('writeData: no valid datetime, skipping')
+		return
+	    }
+
+	    // only log if SK time is advancing (data is live or replaying)
+	    if (lastSkTimestamp > 0 && (timestamp - lastSkTimestamp) > 0) {
 
 		let longitude=Number(app.getSelfPath('navigation.position.value.longitude')).toFixed(6)
 		let latitude=Number(app.getSelfPath('navigation.position.value.latitude')).toFixed(6)
@@ -157,18 +255,27 @@ module.exports = function(app) {
 		let stw=(Number(app.getSelfPath('navigation.speedThroughWater.value'))*1.94384).toFixed(2)
 		let aws=(Number(app.getSelfPath('environment.wind.speedApparent.value'))*1.94384).toFixed(2)
 		let awa=(Number(app.getSelfPath('environment.wind.angleApparent.value'))*(180/Math.PI)).toFixed()
-		let dbk=(Number(app.getSelfPath('environment.depth.belowKeel.value'))).toFixed(1)
-		row=datetime+","+model+","+config+","+longitude+","+latitude+","+sog+","+cog+","+stw+","+aws+","+awa+","+dbk+","+state+"\n"
-		fs.appendFile(
-		    path.join(logDir, logFileName),
-		    row,
-		    (err) => {
-			if (err) throw err;
-		    }
-		)
-		app.debug(`adding row : ${row}`)
+		let tws=(Number(app.getSelfPath('environment.wind.speedTrue.value'))*1.94384).toFixed(2)
+		let twa=(Number(app.getSelfPath('environment.wind.angleTrueWater.value'))*(180/Math.PI)).toFixed()
+		let hdg=(Number(app.getSelfPath('navigation.headingTrue.value'))*(180/Math.PI)).toFixed()
+		let vmgW=(Number(app.getSelfPath('performance.velocityMadeGoodWind.value'))*1.94384).toFixed(2)
+		let vmgG=(Number(app.getSelfPath('performance.velocityMadeGoodGround.value'))*1.94384).toFixed(2)
+		let dbk=(Number(app.getSelfPath('environment.depth.belowKeel.value'))*3.28084).toFixed(1)
+		let sailStr = [sails.main?'main':'', sails.jib?'jib':'', sails.screacher?'screacher':'', sails.spinnaker?'spinnaker':''].filter(Boolean).join('+')
+		row=datetime+","+sailStr+","+longitude+","+latitude+","+sog+","+cog+","+stw+","+aws+","+awa+","+tws+","+twa+","+hdg+","+vmgW+","+vmgG+","+dbk+","+state+"\n"
+		if (logStream) {
+		    logStream.write(row, () => {
+			if (flushEnabled) {
+			    fs.fdatasync(logStream.fd, (err) => {
+				if (err) app.debug(`flush error: ${err.message}`)
+			    })
+			}
+		    })
+		}
+		//app.debug(`adding row : ${row}`)
 
 	    }
+	    lastSkTimestamp = timestamp
 
 	} catch (err) {
 	    console.log(err)
@@ -187,27 +294,36 @@ module.exports = function(app) {
 
     function writeHeaders() {
 	try {
-	    fs.appendFile(
-		path.join(logDir, logFileName),
-		"time,model,config,lon,lat,sog,cog,stw,aws,awa,dbk,engine\n", (err) => {
-		    if (err) throw err;
-		}
-	    )
+	    if (logStream) {
+		logStream.write(
+		    "time,sails,lon,lat,sog,cog,stw,aws,awa,tws,twa,hdg,vmgW,vmgG,dbk,engine\n"
+		)
+	    }
 	} catch (err) {
 	    console.log(err)
 	}
     }
 
     function rotateLogFile(time, compressPrevious = false) {
+	// close the previous stream
+	if (logStream) {
+	    logStream.end()
+	    logStream = null
+	}
+
 	// update the log filename
 	const oldLogFileName = logFileName
 	logFileName = "perf-data.".concat(time.toISOString().replace(/\:/g,"-")).concat('.log')
+	app.debug(`Opening log file: ${path.join(logDir, logFileName)}`)
+
+	// open a new write stream
+	logStream = fs.createWriteStream(path.join(logDir, logFileName), { flags: 'a' })
 
 	// write the column headers
 	writeHeaders();
 
 	// gzip the old logfile
-	if (compressPrevious) {
+	if (compressPrevious && zipEnabled) {
 	    compressLogFile(logDir, oldLogFileName)
 	}
 
