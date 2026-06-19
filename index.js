@@ -88,7 +88,7 @@ module.exports = function(app) {
 	    enginestate: {
 		type: 'string',
 		title: 'Engine state',
-		default: 'stopped',
+		default: 'started',
 		enum: ['started', 'stopped'],
 	    },
 	    logdir: {
@@ -190,6 +190,23 @@ module.exports = function(app) {
 	    app.debug(`Logging ${logenable ? 'enabled' : 'disabled'} via API, path: ${path.join(logDir, logFileName)}`)
 	    res.json({ logenable })
 	})
+	router.get('/engine', (req, res) => {
+	    res.json({ engine: enginestate === 'started' })
+	})
+	router.put('/engine', (req, res) => {
+	    if (typeof req.body.engine !== 'boolean') {
+		return res.status(400).json({ error: 'engine must be a boolean' })
+	    }
+	    const wasOff = enginestate === 'stopped'
+	    enginestate = req.body.engine ? 'started' : 'stopped'
+	    // engine going from off to on stops recording
+	    if (wasOff && enginestate === 'started') {
+		logenable = false
+		app.debug('Engine started, recording stopped automatically')
+	    }
+	    app.debug(`Engine state set to ${enginestate} via API`)
+	    res.json({ engine: req.body.engine, logenable })
+	})
 	router.get('/data', (req, res) => {
 	    try {
 		const val = (p) => {
@@ -237,6 +254,12 @@ module.exports = function(app) {
     function writeData(sails, state) {
 
 	try {
+	    // do not log when engine is running
+	    if (enginestate === 'started') {
+		app.debug('writeData: engine is running, skipping')
+		return
+	    }
+
 	    let datetime=app.getSelfPath('navigation.datetime.value')
 	    let timestamp=Date.parse(datetime)
 

@@ -271,8 +271,14 @@
 
   <form id="config-form">
     <input type="hidden" id="logenable" name="logenable" value="false">
+    <input type="hidden" id="enginestate" name="enginestate" value="started">
+
     <div class="log-toggle">
       <button type="button" id="log-toggle-btn" class="log-toggle-btn off">OFF</button>
+    </div>
+
+    <div class="engine-toggle">
+      <button type="button" id="engine-toggle-btn" class="engine-toggle-btn on">Engine ON</button>
     </div>
 
     <div class="card">
@@ -326,11 +332,6 @@
       </div>
     </div>
 
-    <input type="hidden" id="enginestate" name="enginestate" value="stopped">
-    <div class="engine-toggle">
-      <button type="button" id="engine-toggle-btn" class="engine-toggle-btn off">Engine OFF</button>
-    </div>
-
     <div class="card">
       <h2>Logging</h2>
       <div class="form-group">
@@ -359,9 +360,16 @@
   <script>
     const PLUGIN_ID = 'sk-perf-logger'
     const CONFIG_URL = `/plugins/${PLUGIN_ID}/config`
+    const TOGGLE_URL = `/plugins/${PLUGIN_ID}/logenable`
+    const ENGINE_URL = `/plugins/${PLUGIN_ID}/engine`
 
     const form = document.getElementById('config-form')
     const statusEl = document.getElementById('status')
+
+    const logToggleBtn = document.getElementById('log-toggle-btn')
+    const logEnableInput = document.getElementById('logenable')
+    const engineToggleBtn = document.getElementById('engine-toggle-btn')
+    const engineInput = document.getElementById('enginestate')
 
     function showStatus(message, type) {
       statusEl.textContent = message
@@ -371,9 +379,57 @@
       }
     }
 
+    function setLogToggle(enabled) {
+      logEnableInput.value = enabled ? 'true' : 'false'
+      logToggleBtn.textContent = enabled ? 'ON' : 'OFF'
+      logToggleBtn.className = 'log-toggle-btn ' + (enabled ? 'on' : 'off')
+    }
+
+    function setEngineToggle(on) {
+      engineInput.value = on ? 'started' : 'stopped'
+      engineToggleBtn.textContent = on ? 'Engine ON' : 'Engine OFF'
+      engineToggleBtn.className = 'engine-toggle-btn ' + (on ? 'on' : 'off')
+    }
+
+    // Big ON/OFF button: toggle recording
+    logToggleBtn.addEventListener('click', async () => {
+      const next = logEnableInput.value !== 'true'
+      try {
+        const resp = await fetch(TOGGLE_URL, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ logenable: next })
+        })
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        setLogToggle(next)
+      } catch (err) {
+        showStatus('Failed to toggle logging: ' + err.message, 'error')
+      }
+    })
+
+    // Engine toggle: off→on stops recording
+    engineToggleBtn.addEventListener('click', async () => {
+      const currentlyOn = engineInput.value === 'started'
+      const nextOn = !currentlyOn
+      try {
+        const resp = await fetch(ENGINE_URL, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ engine: nextOn })
+        })
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        const data = await resp.json()
+        setEngineToggle(nextOn)
+        // sync recording state from server (engine on stops recording)
+        setLogToggle(data.logenable)
+      } catch (err) {
+        showStatus('Failed to toggle engine: ' + err.message, 'error')
+      }
+    })
+
     function populateForm(config) {
-      // Log enable toggle
       setLogToggle(config.logenable || false)
+      setEngineToggle(config.enginestate === 'started')
 
       const toggles = ['main', 'jib', 'screacher', 'spinnaker']
       toggles.forEach(field => {
@@ -389,18 +445,16 @@
           el.value = config[field]
         }
       })
-      // Engine toggle
-      setEngineToggle(config.enginestate === 'started')
     }
 
     function getFormData() {
       return {
-        logenable: document.getElementById('logenable').value === 'true',
+        logenable: logEnableInput.value === 'true',
         main: form.main.checked,
         jib: form.jib.checked,
         screacher: form.screacher.checked,
         spinnaker: form.spinnaker.checked,
-        enginestate: document.getElementById('enginestate').value,
+        enginestate: engineInput.value,
         logdir: form.logdir.value,
         logrotationinterval: Number(form.logrotationinterval.value),
         period: Number(form.period.value)
@@ -409,9 +463,10 @@
 
     async function loadConfig() {
       try {
-        const [configResp, toggleResp] = await Promise.all([
+        const [configResp, toggleResp, engineResp] = await Promise.all([
           fetch(CONFIG_URL),
-          fetch(TOGGLE_URL)
+          fetch(TOGGLE_URL),
+          fetch(ENGINE_URL)
         ])
         if (!configResp.ok) throw new Error(`HTTP ${configResp.status}`)
         const data = await configResp.json()
@@ -420,6 +475,10 @@
         if (toggleResp.ok) {
           const toggleData = await toggleResp.json()
           setLogToggle(toggleData.logenable)
+        }
+        if (engineResp.ok) {
+          const engineData = await engineResp.json()
+          setEngineToggle(engineData.engine)
         }
       } catch (err) {
         showStatus('Could not load configuration: ' + err.message, 'error')
@@ -443,47 +502,6 @@
 
     document.getElementById('btn-reload').addEventListener('click', () => {
       loadConfig()
-    })
-
-    // Log enable toggle button
-    const TOGGLE_URL = `/plugins/${PLUGIN_ID}/logenable`
-    const logToggleBtn = document.getElementById('log-toggle-btn')
-    const logEnableInput = document.getElementById('logenable')
-
-    function setLogToggle(enabled) {
-      logEnableInput.value = enabled ? 'true' : 'false'
-      logToggleBtn.textContent = enabled ? 'ON' : 'OFF'
-      logToggleBtn.className = 'log-toggle-btn ' + (enabled ? 'on' : 'off')
-    }
-
-    logToggleBtn.addEventListener('click', async () => {
-      const next = logEnableInput.value !== 'true'
-      try {
-        const resp = await fetch(TOGGLE_URL, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ logenable: next })
-        })
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-        setLogToggle(next)
-      } catch (err) {
-        showStatus('Failed to toggle logging: ' + err.message, 'error')
-      }
-    })
-
-    // Engine toggle button
-    const engineToggleBtn = document.getElementById('engine-toggle-btn')
-    const engineInput = document.getElementById('enginestate')
-
-    function setEngineToggle(on) {
-      engineInput.value = on ? 'started' : 'stopped'
-      engineToggleBtn.textContent = on ? 'Engine ON' : 'Engine OFF'
-      engineToggleBtn.className = 'engine-toggle-btn ' + (on ? 'on' : 'off')
-    }
-
-    engineToggleBtn.addEventListener('click', () => {
-      const current = engineInput.value === 'started'
-      setEngineToggle(!current)
     })
 
     // Live data tile
