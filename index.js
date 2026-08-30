@@ -216,6 +216,10 @@ module.exports = function(app) {
 		const kn = (v) => v !== null ? +(v * 1.94384).toFixed(2) : null
 		const deg = (v) => v !== null ? +(v * (180 / Math.PI)).toFixed() : null
 
+		// Fall back to performance.velocityMadeGood if specific wind/ground paths are unavailable
+		const vmgWRaw = val('performance.velocityMadeGoodWind.value') ?? val('performance.velocityMadeGood.value')
+		const vmgGRaw = val('performance.velocityMadeGoodGround.value') ?? val('performance.velocityMadeGood.value')
+
 		res.json({
 		    sog: kn(val('navigation.speedOverGround.value')),
 		    cog: deg(val('navigation.courseOverGroundTrue.value')),
@@ -225,8 +229,8 @@ module.exports = function(app) {
 		    tws: kn(val('environment.wind.speedTrue.value')),
 		    twa: deg(val('environment.wind.angleTrueWater.value')),
 		    hdg: deg(val('navigation.headingTrue.value')),
-		    vmgW: kn(val('performance.velocityMadeGoodWind.value')),
-		    vmgG: kn(val('performance.velocityMadeGoodGround.value')),
+		    vmgW: kn(vmgWRaw),
+		    vmgG: kn(vmgGRaw),
 		    dbk: val('environment.depth.belowKeel.value') !== null ? +Number(val('environment.depth.belowKeel.value') * 3.28084).toFixed(1) : null
 		})
 	    } catch (err) {
@@ -281,8 +285,10 @@ module.exports = function(app) {
 		let tws=(Number(app.getSelfPath('environment.wind.speedTrue.value'))*1.94384).toFixed(2)
 		let twa=(Number(app.getSelfPath('environment.wind.angleTrueWater.value'))*(180/Math.PI)).toFixed()
 		let hdg=(Number(app.getSelfPath('navigation.headingTrue.value'))*(180/Math.PI)).toFixed()
-		let vmgW=(Number(app.getSelfPath('performance.velocityMadeGoodWind.value'))*1.94384).toFixed(2)
-		let vmgG=(Number(app.getSelfPath('performance.velocityMadeGoodGround.value'))*1.94384).toFixed(2)
+		let vmgWRaw = app.getSelfPath('performance.velocityMadeGoodWind.value') ?? app.getSelfPath('performance.velocityMadeGood.value')
+		let vmgGRaw = app.getSelfPath('performance.velocityMadeGoodGround.value') ?? app.getSelfPath('performance.velocityMadeGood.value')
+		let vmgW=(Number(vmgWRaw)*1.94384).toFixed(2)
+		let vmgG=(Number(vmgGRaw)*1.94384).toFixed(2)
 		let dbk=(Number(app.getSelfPath('environment.depth.belowKeel.value'))*3.28084).toFixed(1)
 		let sailStr = [sails.main?'main':'', sails.jib?'jib':'', sails.screacher?'screacher':'', sails.spinnaker?'spinnaker':''].filter(Boolean).join('+')
 		row=datetime+","+sailStr+","+longitude+","+latitude+","+sog+","+cog+","+stw+","+aws+","+awa+","+tws+","+twa+","+hdg+","+vmgW+","+vmgG+","+dbk+","+state+"\n"
